@@ -1,0 +1,21 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,user-scalable=no">
+<title>Section 67 Disclosure</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-100 p-4"><div class="max-w-md mx-auto bg-white rounded-xl p-5 shadow">
+<h1 class="font-bold text-lg">Section 67 Mandatory Disclosure Form</h1><p id="p" class="text-sm text-slate-500 mb-3">Loading…</p>
+<div id="f"><p class="text-sm mb-3">I confirm that I have disclosed all defects of which I am aware (structural, roof, damp, electrical, plumbing, borehole, illegal structures, etc.) and that this disclosure is true and complete.</p>
+<input id="n" class="border rounded w-full p-2 mb-3" placeholder="Full name (as per ID)">
+<canvas id="c" class="border-2 border-dashed rounded w-full bg-slate-50 touch-none" style="height:180px"></canvas>
+<div class="flex gap-2 mt-3"><button onclick="clr()" class="border rounded px-4 py-2">Clear</button><button onclick="go()" class="bg-emerald-600 text-white rounded px-4 py-2 flex-1">Sign &amp; submit</button></div></div>
+<p id="done" class="hidden text-emerald-700 font-medium"></p></div>
+<script>
+const t=new URLSearchParams(location.search).get('t'),c=document.getElementById('c'),x=c.getContext('2d');let d=false,ink=false;
+function fit(){c.width=c.clientWidth*2;c.height=360;x.scale(2,2);x.lineWidth=2;x.lineCap='round'}fit();
+const pt=e=>{const r=c.getBoundingClientRect(),p=e.touches?e.touches[0]:e;return[p.clientX-r.left,p.clientY-r.top]};
+const st=e=>{e.preventDefault();d=true;x.beginPath();x.moveTo(...pt(e))},mv=e=>{if(!d)return;e.preventDefault();x.lineTo(...pt(e));x.stroke();ink=true},en=()=>d=false;
+['mousedown','touchstart'].forEach(v=>c.addEventListener(v,st,{passive:false}));['mousemove','touchmove'].forEach(v=>c.addEventListener(v,mv,{passive:false}));['mouseup','touchend','mouseleave'].forEach(v=>c.addEventListener(v,en));
+function clr(){x.clearRect(0,0,c.width,c.height);ink=false}
+fetch('/api/sign/'+t).then(r=>r.json()).then(i=>{p.textContent=`${i.address} · ${i.erf}`;if(i.signed){f.classList.add('hidden');done.classList.remove('hidden');done.textContent='Already signed.'}}).catch(()=>p.textContent='Invalid link');
+async function go(){if(!ink||!n.value)return alert('Enter your name and sign in the box');
+ const r=await fetch('/api/sign/'+t,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name:n.value,signature:c.toDataURL('image/png')})});
+ if(r.ok){f.classList.add('hidden');done.classList.remove('hidden');done.textContent='Thank you. Your signed disclosure has been recorded with a timestamp.'}else alert('Could not sign: link invalid or already used')}
+</script></body></html>

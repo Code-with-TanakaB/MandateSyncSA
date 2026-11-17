@@ -1,0 +1,68 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>MandateSync SA</title><script src="https://cdn.tailwindcss.com"></script></head>
+<body class="bg-slate-100 text-slate-800 min-h-screen">
+<header class="bg-slate-900 text-white px-4 py-3 flex flex-wrap items-center gap-3">
+  <h1 class="font-bold text-lg">MandateSync <span class="text-emerald-400">SA</span></h1>
+  <nav id="tabs" class="flex gap-1 text-sm flex-wrap"></nav>
+  <select id="who" class="ml-auto text-slate-900 rounded px-2 py-1 text-sm"></select>
+</header>
+<div id="alerts" class="px-4 pt-3"></div>
+<main id="view" class="p-4"></main>
+<div id="modal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center p-4"><div id="mbody" class="bg-white rounded-xl p-5 w-full max-w-lg max-h-[85vh] overflow-auto"></div></div>
+<script>
+let UID=null,USERS=[],TAB='Pipeline';const $=s=>document.querySelector(s),STAGES=['New','Contacted','Viewing Booked','Offer Made','Closed'];
+const zar=n=>'R '+Number(n).toLocaleString('en-ZA').replace(/,/g,' ');
+async function api(p,o={}){const h={'X-User-Id':UID,...(o.json?{'Content-Type':'application/json'}:{}),...(o.headers||{})};
+ const r=await fetch(p,{...o,headers:h,body:o.json?JSON.stringify(o.json):o.body});const d=await r.json().catch(()=>({}));
+ if(!r.ok){alert(JSON.stringify(d.detail||d,null,1));throw d}return d}
+const me=()=>USERS.find(u=>u.id==UID),isP=()=>me()?.role==='principal',nm=id=>USERS.find(u=>u.id==id)?.name||'Unassigned';
+const age=t=>{const m=Math.round((Date.now()-new Date(t+'Z'))/60000);return m<60?m+'m':m<1440?Math.round(m/60)+'h':Math.round(m/1440)+'d'};
+async function init(){USERS=await (await fetch('/api/users')).json();
+ $('#who').innerHTML=USERS.filter(u=>u.active).map(u=>`<option value=${u.id}>${u.name} (${u.role})</option>`).join('');
+ UID=$('#who').value;$('#who').onchange=e=>{UID=e.target.value;TAB='Pipeline';render()};render();setInterval(()=>{if(!$('#modal').offsetParent)render()},30000)}
+async function render(){const tabs=['Pipeline','Compliance',...(isP()?['Handover','Importer','Feeds','Audit']:['Feeds'])];
+ $('#tabs').innerHTML=tabs.map(t=>`<button onclick="TAB='${t}';render()" class="px-3 py-1 rounded ${t==TAB?'bg-emerald-500':'bg-slate-700'}">${t}</button>`).join('');
+ $('#alerts').innerHTML='';if(isP()){const a=await api('/api/alerts');if(a.length)$('#alerts').innerHTML=`<div class="bg-red-100 border border-red-400 text-red-800 rounded p-3 text-sm">🚨 <b>${a.length} SLA escalation(s)</b>: ${a.slice(0,3).map(x=>x.detail).join(' · ')}</div>`}
+ await V[TAB]()}
+const V={
+async Pipeline(){const L=await api('/api/leads');
+ $('#view').innerHTML=`<div class="flex gap-2 mb-3 flex-wrap items-center"><button onclick="sim()" class="bg-slate-900 text-white text-sm px-3 py-1.5 rounded">+ Simulate enquiry</button><span class="text-xs text-slate-500">Cards turn red when a New lead has no reply/open after 15 min</span></div>
+ <div class="flex gap-3 overflow-x-auto pb-3 md:grid md:grid-cols-5">${STAGES.map(s=>`<section class="min-w-[250px] bg-slate-200 rounded-lg p-2"><h3 class="font-semibold text-sm mb-2">${s} <span class="text-slate-500">${L.filter(l=>l.stage==s).length}</span></h3>
+ ${L.filter(l=>l.stage==s).map(l=>`<article onclick="openLead(${l.id})" class="rounded-lg p-3 mb-2 shadow-sm cursor-pointer text-sm ${l.flagged?'bg-red-100 border-2 border-red-500':'bg-white'}">
+ <div class="font-medium">${l.flagged?'🔴 ':''}${l.name}</div><div class="text-xs text-slate-500">${l.kind} · ${l.listing_ref||'general'} · ${age(l.created_at)} ago</div>
+ <div class="mt-1 flex flex-wrap gap-1">${l.sources.split(',').map(x=>`<span class="bg-emerald-100 text-emerald-800 text-[10px] px-1.5 rounded">${x}</span>`).join('')}</div>
+ <div class="text-xs mt-1 text-slate-500">${nm(l.owner_id)}</div></article>`).join('')}</section>`).join('')}</div>`},
+async Compliance(){const L=await api('/api/listings');
+ $('#view').innerHTML=`<div class="grid gap-3 md:grid-cols-2 xl:grid-cols-3">${L.map(l=>`<div class="bg-white rounded-lg p-4 shadow-sm text-sm"><div class="flex justify-between"><b>${l.address}, ${l.suburb}</b><span class="text-xs px-2 rounded ${l.status=='published'?'bg-emerald-100 text-emerald-800':'bg-amber-100 text-amber-800'}">${l.status}</span></div>
+ <div class="text-slate-500">${l.erf_no} · ${zar(l.price_zar)} · ${nm(l.agent_id)}${l.source_crm?` · from ${l.source_crm}`:''}</div>
+ <div class="mt-2 text-xs">${l.blockers.length?l.blockers.map(b=>`<div class="text-red-700">⛔ ${b}</div>`).join(''):'<div class="text-emerald-700">✅ FICA + Section 67 MDF complete</div>'}</div>
+ <div class="mt-3 flex gap-2 flex-wrap">${isP()&&!l.fica_verified?`<button class="b" onclick="act('/api/listings/${l.id}/fica')">Verify FICA</button>`:''}
+ ${l.status=='draft'&&!l.sign_token&&l.blockers.some(b=>b.includes('MDF'))?`<button class="b" onclick="mkLink(${l.id})">Send MDF link</button>`:''}
+ ${l.sign_token?`<a class="b" href="/sign.html?t=${l.sign_token}" target="_blank">Open seller link</a>`:''}${l.mdf_pdf?`<a class="b" href="${l.mdf_pdf}" target="_blank">Signing PDF</a>`:''}
+ ${l.status=='draft'?`<button class="b !bg-emerald-600" onclick="act('/api/listings/${l.id}/publish')">Publish</button>`:''}
+ ${l.status=='published'?`<button class="b" onclick="act('/api/listings/${l.id}/status',{status:'sold'})">Mark sold</button>`:''}</div></div>`).join('')}</div>
+ <style>.b{background:#0f172a;color:#fff;padding:4px 10px;border-radius:6px;font-size:12px}</style>`},
+async Handover(){const ag=USERS.filter(u=>u.role=='agent'),o=ag.map(u=>`<option value=${u.id}>${u.name}${u.active?'':' (departed)'}</option>`).join('');
+ $('#view').innerHTML=`<div class="bg-white rounded-lg p-5 max-w-lg text-sm"><h2 class="font-semibold mb-1">1-Click Portfolio Handover</h2><p class="text-slate-500 mb-3">Moves all open leads and live/draft mandates. Notes, viewing feedback and comms stay with the agency; every move is audit-logged.</p>
+ <label>Departing agent</label><select id="hf" class="w-full border rounded p-2 mb-2">${o}</select><label>Receiving agent</label><select id="ht" class="w-full border rounded p-2 mb-3">${o}</select>
+ <button class="bg-red-600 text-white px-4 py-2 rounded" onclick="doHand()">Transfer portfolio</button></div>`},
+async Importer(){$('#view').innerHTML=`<div class="bg-white rounded-lg p-5 max-w-xl text-sm"><h2 class="font-semibold mb-1">1-Click Agency Migration Importer</h2><p class="text-slate-500 mb-3">CSV/XML from PropData, Fusion, Flex… Validates erf numbers and ZAR prices; photos named in the file are read from media/incoming and compressed. Imports land as drafts.</p>
+ <select id="crm" class="border rounded p-2 mb-2"><option>PropData</option><option>Fusion</option><option>Flex</option></select> <input id="f" type="file" accept=".csv,.xml" class="mb-3 block"><button class="bg-slate-900 text-white px-4 py-2 rounded" onclick="doImp()">Import</button><pre id="rep" class="mt-3 text-xs bg-slate-50 p-2 rounded overflow-auto"></pre></div>`},
+async Feeds(){$('#view').innerHTML=`<div class="bg-white rounded-lg p-5 text-sm"><p class="mb-2">Regenerated automatically on publish, sold/withdrawn and handover. Only published listings appear.</p><a class="text-emerald-700 underline mr-4" target="_blank" href="/feeds/property24.xml">Property24 XML</a><a class="text-emerald-700 underline" target="_blank" href="/feeds/privateproperty.json">Private Property JSON</a></div>`},
+async Audit(){const A=await api('/api/audit');$('#view').innerHTML=`<div class="bg-white rounded-lg overflow-x-auto"><table class="w-full text-xs"><tr class="text-left bg-slate-50"><th class="p-2">When (UTC)</th><th>Actor</th><th>Action</th><th>Entity</th><th>Detail</th></tr>${A.map(a=>`<tr class="border-t"><td class="p-2 whitespace-nowrap">${a.at.slice(0,19).replace('T',' ')}</td><td>${a.actor_id?nm(a.actor_id):'system'}</td><td class="font-mono ${a.action.includes('SLA')?'text-red-600':''}">${a.action}</td><td>${a.entity||''} ${a.entity_id||''}</td><td class="max-w-md truncate">${a.detail||''}</td></tr>`).join('')}</table></div>`}};
+async function act(p,j){await api(p,{method:'POST',...(j?{json:j}:{})});render()}
+async function mkLink(id){const r=await api(`/api/listings/${id}/disclosure-link`,{method:'POST'});prompt('Send this private link to the seller (opens on phone/tablet):',location.origin+r.url);render()}
+async function openLead(id){await api(`/api/leads/${id}/open`,{method:'POST'});const L=(await api('/api/leads')).find(l=>l.id==id),E=await api(`/api/leads/${id}/events`);
+ $('#mbody').innerHTML=`<div class="flex justify-between"><h3 class="font-bold">${L.name}</h3><button onclick="$('#modal').classList.add('hidden');render()">✕</button></div><p class="text-xs text-slate-500">${L.phone} · ${L.email||''}</p>
+ <select onchange="mv(${id},this.value)" class="border rounded p-1 my-2 text-sm">${STAGES.map(s=>`<option ${s==L.stage?'selected':''}>${s}</option>`).join('')}</select>
+ <div class="space-y-1 text-xs my-2">${E.map(e=>`<div class="bg-slate-50 rounded p-2"><b>${e.kind}</b> · ${e.at.slice(0,16).replace('T',' ')} · ${e.author_id?nm(e.author_id):'system'}<br>${e.body}</div>`).join('')}</div>
+ <input id="nb" class="border rounded p-2 w-full text-sm" placeholder="Add note / viewing feedback"><div class="mt-2 flex gap-2"><button class="bg-slate-900 text-white px-3 py-1 rounded text-sm" onclick="note(${id},'note')">Add note</button><button class="bg-emerald-600 text-white px-3 py-1 rounded text-sm" onclick="note(${id},'message')">Log reply</button></div>`;$('#modal').classList.remove('hidden')}
+async function mv(id,s){await api(`/api/leads/${id}/stage`,{method:'PATCH',json:{stage:s}})}
+async function note(id,k){const b=$('#nb').value;if(!b)return;await api(`/api/leads/${id}/events`,{method:'POST',json:{kind:k,body:b}});openLead(id)}
+async function sim(){const s=['property24','privateproperty','website'][Math.floor(Math.random()*3)],n=['Thabo Molefe','Sipho Nkosi','Elmarie Venter','Priya Naidoo'][Math.floor(Math.random()*4)];
+ const r=await fetch('/api/webhooks/'+s,{method:'POST',headers:{'Content-Type':'application/json','X-Agency-Key':'demo-key-hpp'},body:JSON.stringify({name:n,phone:n=='Sipho Nkosi'?'082 123 4567':'072 '+Math.floor(1e6+Math.random()*9e6),message:'Interested, please call',listing_ref:'ERF3381'})});
+ alert(JSON.stringify(await r.json())+(n=='Sipho Nkosi'?'\n(Sipho is an existing lead: merged, not duplicated)':''));render()}
+async function doHand(){if(!confirm('Transfer entire portfolio?'))return;const r=await api('/api/handover',{method:'POST',json:{from_agent_id:+$('#hf').value,to_agent_id:+$('#ht').value}});alert(`Moved ${r.leads} leads, ${r.listings} listings.`);USERS=await (await fetch('/api/users')).json();$('#who').innerHTML=USERS.filter(u=>u.active).map(u=>`<option value=${u.id} ${u.id==UID?'selected':''}>${u.name} (${u.role})</option>`).join('');render()}
+async function doImp(){const f=$('#f').files[0];if(!f)return;const fd=new FormData();fd.append('file',f);const r=await api('/api/import?crm='+$('#crm').value,{method:'POST',body:fd});$('#rep').textContent=JSON.stringify(r,null,2)}
+init();
+</script></body></html>
